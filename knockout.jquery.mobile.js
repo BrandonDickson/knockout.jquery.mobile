@@ -1,78 +1,86 @@
 /* 
  * This script is designed to auto correct some conflicts between
  * kockout.js and jquery.mobile.js
+ * it needs to be added to the document after jquery, but before jquery.mobile
  * written by Master Morality.
  */
+
 $(document)
-	.bind('mobileinit', function(){
+	.bind('mobileinit',function(){ 
 		/*
-		 * we have to postpone jquery mobile's page initialization,
-		 * otherwise it will add a bunch of elements to our inline
-		 * templates.
-		 */
+ 		 * postpone mobile init
+ 		 * we need to make sure that ko.applyBindings(...)
+ 		 * is called prior to $.mobile.initializePage(), so that any
+ 		 * inline templates are parsed without added classes etc.
+ 		 */
 		$.mobile.autoInitializePage = false; 
 	})
-	.bind('ready', function(){
-
-		if($.mobile)
-		{
-			/*
-			 * Any template parsing should have been taken care of by now.
-			 */
-			$.mobile.initializePage();
+	.bind('ready',function(){
+		/*
+		 * initialized page.
+		 * we assume that ko.applyBindings(...) has been called ala:
+		 * $(function(){... ko.applyBindings(...); });
+		 * somewhere in the body, or at least has been call in
+		 * a 'ready' event handler prior to now.
+		 */
+		$.mobile.initializePage();
 		
-			/*
-			 * a little extension method that applies the appropriate
-			 * data role widgets to affected elements
-			 * (this must still be called in custom binding handlers, if needed)
-			 */
-			$.fn.mobilize = function(){
-				this.each(function(){
-					/*
-					 * knockout templates can sometimes use
-					 * comments for control statements
-					 * so we need to get the closest
-					 * parent with a data role
-					 */
-					var that = $(this),
-						root = this.nodeType == 8 
-							? that.closest(':jqmData(role)')
-							: that.is(":jqmData(role)")
-								? that.parent()
-								: that;
-								
-					/*
-					 * now we need to initialize
-					 * appropriate descendants
-					 */
-					root.find(":jqmData(role)")
-						.each(function(){
-							var desc = this,
-								role = desc.jqmData('role').replace('-','');
-							if(desc[role]) desc[role]();
-						});
-				});
-			};
+		/*
+		 * overwrite template update binding helper,
+		 * this must be done after $.mobile.initializePage()
+		 * because we want any initial data binding
+		 * to work correctly. once the initial structure
+		 * has been created, we are only worried about
+		 * changes.
+		 */
+		var _update = ko.bindingHandlers.template.update,
+			_root = false;
+			
+		ko.bindingHandlers.template.update = function(e){
 			
 			/*
-			 * now we need to overwrite
-			 * some knockout js functions
-			 * so they run mobilize when updated
+			 * it's pointless to call this recursively for
+			 * nested templates...
 			 */
-
-			$.each(['foreach','with','if','ifnot'],function(){
+			var isRoot = _root ? false : (_root = true),
+				result = _update.apply(this, arguments);
+				
+			if(isRoot)
+			{
 				/*
-				 * first, grab the handler with the corresponding name,
-				 * then cache it's update method, and overwrite it.
+				 * when a template is written,
+				 * the element (e) that has the data-bind tag
+				 * is replaced, instead of just filled.
+				 * we need to find the closest parent
+				 * of this element, that is a jquery mobile widget. If the widget is
+				 * refreshable, we need to refresh it, otherwise
+				 * we need to trigger it's create
+				 * event, which will signal jquery mobile to
+				 * create any child widgets.
 				 */
-				var handler = ko.bindingHandlers[this], 
-					update  = handler.update;
-					
-				handler.update = function(e){
-					update.apply(this,arguments);
-					$(e).mobilize();
-				};
-			});
-		}
+				var elem = $(e),
+					parent = elem.parent(),
+					widget = parent.closest(':jqmData(role)'),
+					role = widget.jqmData('role').replace('-','');
+				
+				try
+				{
+					/*
+					 * this is incredibly brute force, but I
+					 * don't know of a way to check if a
+					 * jquery mobile widget has a refresh method
+					 */
+					widget[role]('refresh');
+				}
+				catch(exp)
+				{
+					widget.trigger('create');
+				}
+				
+				_root = false;
+			}
+			
+			return result;
+		};
+		
 	});
-});
