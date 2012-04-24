@@ -39,42 +39,63 @@ $(document)
 		ko.bindingHandlers.template.update = function(e){
 			
 			/*
-			 * it's pointless to call this recursively for
-			 * nested templates...
+			 * We don't want to enhance elements
+			 * that were added as children of a root
+			 * template, because they will be enhanced
+			 * anyway once the parent element is
+			 * enhanced.
 			 */
 			var isRoot = _root ? false : (_root = true),
 				result = _update.apply(this, arguments);
 				
 			if(isRoot)
 			{
-				/*
-				 * when a template is written,
-				 * the element (e) that has the data-bind tag
-				 * is replaced, instead of just filled.
-				 * we need to find the closest parent
-				 * of this element, that is a jquery mobile widget. If the widget is
-				 * refreshable, we need to refresh it, otherwise
-				 * we need to trigger it's create
-				 * event, which will signal jquery mobile to
-				 * create any child widgets.
-				 */
-				var elem = $(e),
-					parent = elem.parent(),
-					widget = parent.closest(':jqmData(role)'),
-					role = widget.jqmData('role').replace('-','');
+				var elem = $(e);
 				
-				try
+				/*
+				 * jQuery Mobile doesn't process pages
+				 * until they are navigated to for the first time. 
+				 * This can cause a problem with elements 
+				 * being enhanced before their pages are.
+				 * However, we only need to worry about
+				 * enhanced pages anyway, because once
+				 * a page is initially enhanced, it automatically
+				 * enhances it's descendants.
+				 */
+				var page = elem.closest('.ui-page')[0];
+				
+				if( page )
 				{
 					/*
-					 * this is incredibly brute force, but I
-					 * don't know of a way to check if a
-					 * jquery mobile widget has a refresh method
+					 * when a template is rendered,
+					 * the element is replaced, this will
+					 * remove any enhancement that jQuery mobile has
+					 * applied. 
+					 * 
+					 * In order to re-apply the enhancement,
+					 * we need to find the closest parent widget.
 					 */
-					widget[role]('refresh');
-				}
-				catch(exp)
-				{
-					widget.trigger('create');
+					var widget = elem.parent(':jqmData(role)');
+					
+					/*
+					 * we also need to divine what this widget
+					 * is, so we can figure out if it can be
+					 * refreshed or not.
+					 */
+					var widgetRole = widget.jqmData('role').replace('-',''),
+						widgetInstance = widget.jqmData(widgetRole),
+						widgetIsRefreshable = widgetInstance && $.isFunction(widgetInstance['refresh']);
+						
+					if( widgetIsRefreshable ){
+						widgetInstance['refresh']();
+					} else {
+						/*
+						 * if a widget isn't refreshable
+						 * we need to do it the old fashion way.
+						 */
+						widget.trigger('create');
+					}
+					
 				}
 				
 				_root = false;
